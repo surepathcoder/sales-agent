@@ -37,44 +37,61 @@ class LeadService:
         count = await self.count_leads()
         return count < limits["max_leads"]
 
-    async def find_duplicate(self, company_name: str, phone: str | None = None) -> Lead | None:
-        """Detect duplicate by company name or contact phone within tenant."""
+    async def find_duplicate(
+        self,
+        company_name: str,
+        phone: str | None = None,
+        cross_tenant: bool = False,
+    ) -> Lead | None:
+        """Detect duplicate by company name or contact phone within tenant, or globally across all tenants."""
         pattern = f"%{company_name.strip()}%"
-        result = await self.db.execute(
-            select(Lead).where(
-                Lead.tenant_id == self.tenant_id,
-                Lead.company_name.ilike(pattern),
-            ).limit(1)
-        )
+        stmt = select(Lead).where(Lead.company_name.ilike(pattern))
+        if not cross_tenant:
+            stmt = stmt.where(Lead.tenant_id == self.tenant_id)
+        
+        result = await self.db.execute(stmt.limit(1))
         dup = result.scalar_one_or_none()
         if dup:
             return dup
         if phone:
             from app.models.lead_contact import LeadContact
 
-            contact_result = await self.db.execute(
-                select(Lead)
-                .join(LeadContact, LeadContact.lead_id == Lead.id)
-                .where(
+            stmt_contact = select(Lead).join(LeadContact, LeadContact.lead_id == Lead.id)
+            if not cross_tenant:
+                stmt_contact = stmt_contact.where(
                     Lead.tenant_id == self.tenant_id,
                     LeadContact.whatsapp_number == phone,
                 )
-                .limit(1)
-            )
+            else:
+                stmt_contact = stmt_contact.where(LeadContact.whatsapp_number == phone)
+
+            contact_result = await self.db.execute(stmt_contact.limit(1))
             return contact_result.scalar_one_or_none()
         return None
 
-    async def create_lead(self, data: LeadCreate, skip_duplicate: bool = False) -> Lead:
+    async def create_lead(
+        self,
+        data: LeadCreate,
+        skip_duplicate: bool = False,
+        check_cross_tenant: bool = True,
+    ) -> Lead:
         if not await self.check_lead_limit():
             raise ValueError("Lead limit reached for your plan / Kikomo cha wateja kimefikiwa")
 
         phone = data.custom_fields.get("phone") if data.custom_fields else None
         if not skip_duplicate:
-            existing = await self.find_duplicate(data.company_name, phone)
+            existing = await self.find_duplicate(data.company_name, phone, cross_tenant=False)
             if existing:
                 raise ValueError(
                     f"Duplicate lead: {existing.company_name} already exists / Mteja tayari yupo"
                 )
+
+        custom_fields = dict(data.custom_fields) if data.custom_fields else {}
+        if check_cross_tenant:
+            global_existing = await self.find_duplicate(data.company_name, phone, cross_tenant=True)
+            if global_existing:
+                custom_fields["cross_tenant_duplicate"] = True
+                custom_fields["shared_lead_ref"] = str(global_existing.id)
 
         lead = Lead(
             tenant_id=self.tenant_id,
@@ -88,7 +105,7 @@ class LeadService:
             location_lat=data.location_lat,
             location_lng=data.location_lng,
             tags=data.tags,
-            custom_fields=data.custom_fields,
+            custom_fields=custom_fields,
         )
         self.db.add(lead)
         await self.db.flush()

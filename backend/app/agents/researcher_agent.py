@@ -33,6 +33,17 @@ async def researcher_node(state: AgentState) -> dict[str, Any]:
     web_data = await scrape_web(f"{company} Tanzania", max_results=3)
     enriched["web_mentions"] = web_data
 
+  # Website crawling/enrichment
+  website = lead.get("custom_fields", {}).get("website") or lead.get("website")
+  if website and not settings.use_mock_scraper:
+    from app.agents.tools.enricher_tool import extract_contact_details
+    logger.info("Researcher: enrichment for website %s", website)
+    try:
+      details = await extract_contact_details(website)
+      enriched["website_enriched"] = details
+    except Exception as e:
+      logger.error("Researcher website enrichment failed: %s", e)
+
   # AI analysis
   groq = GroqClient()
   try:

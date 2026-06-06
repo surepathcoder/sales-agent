@@ -130,6 +130,47 @@ async def _enrich_lead(
   }
   lead.status = LeadStatus.RESEARCHING
 
+  # Save contacts, emails, and socials from website_enriched
+  website_enriched = enriched.get("website_enriched")
+  if website_enriched:
+    custom = lead.custom_fields or {}
+    updated_custom = {**custom}
+    if website_enriched.get("facebook"):
+      updated_custom["facebook_url"] = website_enriched.get("facebook")
+    if website_enriched.get("instagram"):
+      updated_custom["instagram_url"] = website_enriched.get("instagram")
+    if website_enriched.get("linkedin"):
+      updated_custom["linkedin_url"] = website_enriched.get("linkedin")
+    if website_enriched.get("email"):
+      updated_custom["email"] = website_enriched.get("email")
+    
+    phones = website_enriched.get("phones") or []
+    if phones and not custom.get("phone"):
+      updated_custom["phone"] = phones[0]
+      lead.custom_fields = updated_custom
+      await lead_svc.add_contact_from_phone(lead.id, phones[0], lead.company_name)
+    else:
+      lead.custom_fields = updated_custom
+
+    email = website_enriched.get("email")
+    if email:
+      existing_emails = [c.email for c in lead.contacts if c.email]
+      if email not in existing_emails:
+        from app.schemas.contact import LeadContactCreate
+        from app.models.enums import ContactType
+        await lead_svc.add_contact(
+          lead.id,
+          LeadContactCreate(
+            first_name="Info / Support",
+            last_name="",
+            email=email,
+            phone=phones[0] if phones else None,
+            whatsapp_number=phones[0] if phones else None,
+            contact_type=ContactType.PROCUREMENT,
+            is_decision_maker=False,
+          )
+        )
+
   memory_store = AgentMemoryStore(db, tenant_id)
   await memory_store.store(
     AgentType.RESEARCHER,
@@ -138,6 +179,47 @@ async def _enrich_lead(
     lead_id=lead.id,
     confidence=0.85,
   )
+
+
+def calculate_rule_based_score(candidate: dict[str, Any]) -> tuple[int, list[str]]:
+  """Compute rule-based scoring based on reviews, rating, and online presence."""
+  score = 0
+  reasons = []
+
+  if candidate.get("website"):
+    score += 20
+    reasons.append("website_exists")
+  if candidate.get("phone"):
+    score += 10
+    reasons.append("phone_exists")
+  if candidate.get("email") or candidate.get("facebook_url") or candidate.get("instagram_url") or candidate.get("linkedin_url"):
+    score += 20
+    reasons.append("online_contacts_exist")
+
+  rating_val = candidate.get("rating")
+  if rating_val:
+    try:
+      rating = float(str(rating_val).replace(",", ""))
+      if rating >= 4.0:
+        score += 20
+        reasons.append("rating_gt_4")
+    except Exception:
+      pass
+
+  reviews_val = candidate.get("reviews_count")
+  if reviews_val:
+    try:
+      reviews = int(str(reviews_val).replace(",", ""))
+      if reviews >= 100:
+        score += 20
+        reasons.append("reviews_gt_100")
+      elif reviews >= 10:
+        score += 10
+        reasons.append("reviews_gt_10")
+    except Exception:
+      pass
+
+  return min(score, 100), reasons
 
 
 async def _save_discovered_candidate(
@@ -156,6 +238,13 @@ async def _save_discovered_candidate(
       logger.warning("Lead scoring unavailable, using defaults: %s", e)
       scoring = {"score": 50, "priority": "warm", "reasoning": "Default score (LLM unavailable)"}
 
+    # Calculate rule-based heuristic score
+    rule_score, rule_reasons = calculate_rule_based_score(candidate)
+
+    # Combine LLM and rule-based heuristic score
+    llm_score = scoring.get("score", 50)
+    combined_score = int(0.4 * rule_score + 0.6 * llm_score)
+
     lead = await lead_svc.create_lead(LeadCreate(
       company_name=candidate.get("company_name", "Unknown"),
       address=candidate.get("address"),
@@ -168,16 +257,32 @@ async def _save_discovered_candidate(
         "website": candidate.get("website"),
         "facebook_url": candidate.get("facebook_url"),
         "instagram_url": candidate.get("instagram_url"),
+        "linkedin_url": candidate.get("linkedin_url"),
+        "category": candidate.get("category"),
+        "rating": candidate.get("rating"),
+        "reviews_count": candidate.get("reviews_count"),
         "search_metadata": search_metadata,
       },
     ))
     from app.models.enums import LeadPriority
 
-    priority_map = {"hot": LeadPriority.HOT, "warm": LeadPriority.WARM, "cold": LeadPriority.COLD}
-    lead.lead_score = scoring.get("score", 30)
-    lead.priority = priority_map.get(scoring.get("priority", "cold"), LeadPriority.COLD)
+    # Set priority based on combined score
+    lead.lead_score = combined_score
+    if combined_score >= 75:
+      lead.priority = LeadPriority.HOT
+    elif combined_score >= 40:
+      lead.priority = LeadPriority.WARM
+    else:
+      lead.priority = LeadPriority.COLD
+
     lead.status = LeadStatus.NEW
-    lead.ai_insights = {"initial_score": scoring}
+    lead.ai_insights = {
+      "initial_score": scoring,
+      "rule_based_score": {
+        "score": rule_score,
+        "reasons": rule_reasons
+      }
+    }
 
     phone = candidate.get("phone") or candidate.get("custom_fields", {}).get("phone")
     await lead_svc.add_contact_from_phone(lead.id, phone, lead.company_name)

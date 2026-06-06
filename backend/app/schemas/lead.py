@@ -70,11 +70,22 @@ class LeadResponse(ORMBase):
     contact_count: int = 0
 
 
+from app.schemas.contact import LeadContactResponse
+from app.schemas.deal import DealResponse
+from app.schemas.interaction import InteractionResponse
+
+class AgentMemorySchema(ORMBase):
+    id: uuid.UUID
+    agent_type: str
+    memory_type: str
+    content: str
+    confidence_score: float
+
 class LeadDossierResponse(LeadResponse):
-    contacts: list[Any] = Field(default_factory=list)
-    interactions: list[Any] = Field(default_factory=list)
-    deals: list[Any] = Field(default_factory=list)
-    agent_memories: list[Any] = Field(default_factory=list)
+    contacts: list[LeadContactResponse] = Field(default_factory=list)
+    interactions: list[InteractionResponse] = Field(default_factory=list)
+    deals: list[DealResponse] = Field(default_factory=list)
+    agent_memories: list[AgentMemorySchema] = Field(default_factory=list)
 
 
 class DiscoverLeadsRequest(BaseModel):
