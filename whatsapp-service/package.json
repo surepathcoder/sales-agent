@@ -1,0 +1,14 @@
+{
+  "name": "kijani-whatsapp-service",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "whatsapp-web.js": "^1.26.0",
+    "qrcode": "^1.5.4",
+    "redis": "^4.7.0"
+  }
+}

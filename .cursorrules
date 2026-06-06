@@ -1,0 +1,51 @@
+# Kijani AI — Cursor Rules
+
+## Project Overview
+Multi-tenant agentic AI sales platform for Tanzanian B2B businesses.
+Stack: FastAPI + Next.js 14 App Router + PostgreSQL (pgvector) + Redis + LangGraph + Groq.
+
+## Critical Architecture Rules
+
+### Multi-Tenancy (NON-NEGOTIABLE)
+- Every database query MUST filter by `tenant_id` from JWT/request state.
+- Never expose cross-tenant data. Use `TenantScopedMixin` on all tenant models.
+- JWT payload: `user_id`, `tenant_id`, `role`.
+- Middleware injects `tenant_id` into `request.state.tenant_id`.
+
+### Backend (Python 3.11+)
+- SQLAlchemy 2.0 async style with `asyncpg`.
+- Pydantic v2 for all schemas.
+- Type hints on all functions.
+- Use dependency injection for DB sessions and tenant context.
+- Structured JSON logging per request.
+
+### Frontend (Next.js 14+)
+- App Router with route groups: `(dashboard)`, `(auth)`, `(marketing)`.
+- TypeScript strict mode.
+- TanStack Query for server state, Zustand for client auth/UI state.
+- shadcn/ui + Tailwind for components.
+
+### Agents
+- LangGraph StateGraph: scout → researcher → outreach → closer.
+- Groq for LLM (llama-3.1-70b-versatile primary, 8b-instant for fast tasks).
+- Swahili-English bilingual prompts for Tanzanian B2B context.
+- Human-in-the-loop gates configurable per tenant plan.
+
+### Data Scraping
+- Playwright for Google Maps, Facebook, Instagram, and general web scraping.
+- Respect rate limits; queue via Redis/Celery.
+- Store source metadata on leads (`source`, `custom_fields`).
+
+### Payments
+- Mock M-Pesa for MVP; idempotent webhook handlers.
+- All billing scoped to `tenant_id`.
+
+## File Conventions
+- Backend routes under `app/api/v1/`.
+- Business logic in `app/services/`, not in route handlers.
+- Agent tools in `app/agents/tools/`.
+- External API wrappers in `app/integrations/`.
+
+## Testing
+- pytest-asyncio with per-test database.
+- Mock external services (Groq, M-Pesa, WhatsApp) in tests.

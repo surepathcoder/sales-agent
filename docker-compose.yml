@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: kijani-postgres
+    environment:
+      POSTGRES_USER: kijani
+      POSTGRES_PASSWORD: kijani_dev_pass
+      POSTGRES_DB: kijani
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kijani -d kijani"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: kijani-redis
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kijani-backend
+    ports:
+      - "8002:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://kijani:kijani_dev_pass@postgres:5432/kijani
+      REDIS_URL: redis://redis:6379/0
+      WHATSAPP_SERVICE_URL: http://whatsapp:8001
+      USE_MOCK_SCRAPER: "true"
+      APP_FRONTEND_URL: http://localhost:3000
+    volumes:
+      - ./backend:/app
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: kijani-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8002
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+  whatsapp:
+    build:
+      context: ./whatsapp-service
+      dockerfile: Dockerfile
+    container_name: kijani-whatsapp
+    ports:
+      - "8001:8001"
+    environment:
+      REDIS_URL: redis://redis:6379/1
+      SESSION_PATH: /sessions
+      BACKEND_WEBHOOK_URL: http://backend:8000/api/v1/webhooks/whatsapp
+    volumes:
+      - whatsapp_sessions:/sessions
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+  whatsapp_sessions:
