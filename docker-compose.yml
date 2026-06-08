@@ -42,7 +42,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://kijani:kijani_dev_pass@postgres:5432/kijani
       REDIS_URL: redis://redis:6379/0
       WHATSAPP_SERVICE_URL: http://whatsapp:8001
-      USE_MOCK_SCRAPER: "true"
+      USE_MOCK_SCRAPER: "false"
       APP_FRONTEND_URL: http://localhost:3000
     volumes:
       - ./backend:/app

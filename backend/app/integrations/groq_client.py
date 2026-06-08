@@ -352,3 +352,42 @@ JSON Format:
         "requires_takeover": True,
         "reasoning": f"Fallback due to error: {e}",
       }
+
+  async def parse_discovery_intent(
+    self, prompt: str, tenant_id: str = "system"
+  ) -> dict[str, Any]:
+    sys_prompt = """Parse the following natural language request for B2B lead discovery into structured criteria.
+Extract the location (city/region), industry, target number of leads (max_results), and category if specified.
+Default max_results to 50 if not specified. Default location to 'Dar es Salaam' if not specified.
+Return ONLY valid JSON matching this schema:
+{
+  "location": "string",
+  "industry": "string",
+  "category": "string",
+  "max_results": number
+}"""
+    try:
+      result = await self.chat(
+        [
+          {"role": "system", "content": sys_prompt},
+          {"role": "user", "content": prompt}
+        ],
+        model=self.settings.groq_model_fast,
+        json_mode=True,
+        tenant_id=tenant_id,
+      )
+      data = json.loads(result)
+      return {
+        "location": data.get("location", "Tanzania"),
+        "industry": data.get("industry", "general"),
+        "category": data.get("category", ""),
+        "max_results": int(data.get("max_results", 50))
+      }
+    except Exception as e:
+      logger.error("Failed to parse discovery intent: %s", e)
+      return {
+        "location": "Tanzania",
+        "industry": "general",
+        "category": "",
+        "max_results": 50
+      }

@@ -14,10 +14,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const token = useAuthStore((s) => s.accessToken);
   const { data: usage } = useUsage();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (!token) router.replace('/login');
-  }, [token, router]);
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (hydrated && !token) router.replace('/login');
+  }, [hydrated, token, router]);
 
   useEffect(() => {
     if (
@@ -35,7 +40,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setIsSidebarOpen(false);
   }, [pathname]);
 
-  if (!token) return null;
+  if (!hydrated || !token) return null;
 
   return (
     <div className="flex h-screen overflow-hidden">

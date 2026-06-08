@@ -14,12 +14,14 @@ import {
   Target,
   X,
   Shield,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth';
 
 const nav = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/discover', label: 'AI Discover', icon: Sparkles },
   { href: '/leads', label: 'Leads / Wateja', icon: Users },
   { href: '/inbox', label: 'Inbox / Kikasha', icon: Inbox },
   { href: '/campaigns', label: 'Campaigns', icon: Megaphone },

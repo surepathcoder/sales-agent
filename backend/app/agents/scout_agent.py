@@ -26,10 +26,28 @@ async def scout_node(state: AgentState) -> dict[str, Any]:
   """LangGraph node: discover leads from configured sources."""
   criteria = state.get("target_criteria", {})
   sources = criteria.get("sources", ["google_maps", "web"])
-  locations = criteria.get("locations", ["Dar es Salaam, Tanzania"])
-  industries = criteria.get("industries", ["business"])
+  # Support both singular 'location' (from chat parser) and plural 'locations'
+  locations = criteria.get("locations")
+  if not locations and "location" in criteria:
+    locations = [criteria["location"]]
+  if not locations:
+    locations = ["Dar es Salaam, Tanzania"]
+
+  # Support both singular 'industry' and plural 'industries'
+  industries = criteria.get("industries")
+  if not industries and "industry" in criteria:
+    industries = [criteria["industry"]]
+  if not industries:
+    industries = ["business"]
+
   max_results = criteria.get("max_results", 50)
-  search_query = criteria.get("search_query") or " ".join(industries)
+
+  # Support search_query from criteria, category if set, or industries
+  search_query = criteria.get("search_query")
+  if not search_query and criteria.get("category"):
+    search_query = criteria.get("category")
+  if not search_query:
+    search_query = " ".join(industries)
 
   discovered: list[dict[str, Any]] = []
   metadata: dict[str, Any] = {"sources_used": [], "total_found": 0}
@@ -57,11 +75,13 @@ async def scout_node(state: AgentState) -> dict[str, Any]:
     }
 
   per_source_limit = max(5, max_results // max(len(sources), 1))
+  job_id = state.get("job_id")
 
   for location in locations:
     if "google_maps" in sources:
       logger.info("Scout: Google Maps — %s in %s", search_query, location)
-      maps_results = await scrape_google_maps(search_query, location, per_source_limit)
+      # Always pass the full max_results to Google Maps — it is the primary source
+      maps_results = await scrape_google_maps(search_query, location, max_results, job_id=job_id)
       discovered.extend(maps_results)
       metadata["sources_used"].append({"source": "google_maps", "count": len(maps_results)})
 

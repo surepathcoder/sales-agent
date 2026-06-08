@@ -38,7 +38,7 @@ async def test_mock_scout_discovery(mock_groq_score):
                 email=f"leadtest-{tenant_id.hex[:6]}@test.local",
                 phone="+255700000001",
                 password_hash=pwd.hash("testpass123"),
-                role=UserRole.ADMIN,
+                role=UserRole.OWNER,
             )
             db.add(user)
     except Exception as e:

@@ -311,6 +311,7 @@ async def scrape_google_maps(
   query: str,
   location: str = "Dar es Salaam, Tanzania",
   max_results: int = 20,
+  job_id: str | None = None,
 ) -> list[dict[str, Any]]:
   """
   Scrape Google Maps for businesses matching query + location.
@@ -425,7 +426,7 @@ async def scrape_google_maps(
           logger.error("Error extracting single direct business details: %s", e)
         return results
 
-      # Scroll results sidebar feed
+      # Scroll results sidebar feed - keep going until we have enough cards
       feed = page.locator("div[role='feed']")
       if await feed.count() > 0:
         last_count = 0
@@ -433,14 +434,15 @@ async def scrape_google_maps(
         while True:
           cards = page.locator("div[role='article']")
           current_count = await cards.count()
-          if current_count >= max_results:
+          print(f"DEBUG: scroll iteration, cards so far: {current_count}")
+          if current_count >= max_results * 2:  # gather 2x to have buffer after filtering
             break
           await feed.first.evaluate("el => el.scrollBy(0, 10000)")
-          await page.wait_for_timeout(1500)
+          await page.wait_for_timeout(2000)
           new_count = await page.locator("div[role='article']").count()
           if new_count == last_count:
             no_change_iterations += 1
-            if no_change_iterations >= 5:
+            if no_change_iterations >= 8:
               break
           else:
             no_change_iterations = 0
@@ -455,28 +457,44 @@ async def scrape_google_maps(
         try:
           card = cards.nth(index)
           
-          card_name = "Unknown business"
-          link_loc = card.locator("a.hfpxzc").first
+          card_name = ""
           card_href = ""
+
+          # Primary: a.hfpxzc (Maps result card link)
+          link_loc = card.locator("a.hfpxzc").first
           if await link_loc.count() > 0:
             card_name = (await link_loc.get_attribute("aria-label") or "").strip()
             card_href = (await link_loc.get_attribute("href") or "").strip()
-          
-          if not card_name or card_name == "Unknown business":
-            title_loc = card.locator("div.fontHeadlineSmall").first
-            if await title_loc.count() > 0:
-              card_name = (await title_loc.text_content() or "").strip()
 
+          # Fallback: any <a> pointing to google.com/maps/place
           if not card_href:
-            a_loc = card.locator("a").first
-            if await a_loc.count() > 0:
-              card_href = (await a_loc.get_attribute("href") or "").strip()
-          
-          if "sponsored" in card_name.lower() or card_name.startswith("Sponsored"):
+            all_links = card.locator("a")
+            for li in range(await all_links.count()):
+              href_try = (await all_links.nth(li).get_attribute("href") or "").strip()
+              if "/maps/place/" in href_try:
+                card_href = href_try
+                label_try = (await all_links.nth(li).get_attribute("aria-label") or "").strip()
+                if label_try:
+                  card_name = label_try
+                break
+
+          # Fallback name: visible heading inside card
+          if not card_name:
+            for sel in ["div.fontHeadlineSmall", "div.qBF1Pd", "span.fontHeadlineSmall"]:
+              title_loc = card.locator(sel).first
+              if await title_loc.count() > 0:
+                card_name = (await title_loc.text_content() or "").strip()
+                if card_name:
+                  break
+
+          if not card_name or not card_href:
+            continue
+
+          if "sponsored" in card_name.lower() or card_name.lower().startswith("sponsored"):
             logger.debug("Skipping sponsored card: %s", card_name)
             continue
             
-          if card_href and card_name != "Unknown business":
+          if card_href and card_name:
             targets.append({"name": card_name, "href": card_href})
         except Exception as e:
           logger.error("Error gathering card at index %s: %s", index, e)
@@ -484,48 +502,84 @@ async def scrape_google_maps(
           
       print(f"DEBUG: Gathered {len(targets)} target URLs to scrape")
 
+      import asyncio as _asyncio
+
+      CONCURRENCY = 3  # parallel browser tabs
+      semaphore = _asyncio.Semaphore(CONCURRENCY)
+      results_lock = _asyncio.Lock()
       organic_count = 0
-      for target in targets:
-        if organic_count >= max_results:
-          break
-          
+
+      async def scrape_one(idx: int, target: dict) -> None:
+        nonlocal organic_count
+        async with results_lock:
+          if organic_count >= max_results:
+            return
         card_name = target["name"]
         card_href = target["href"]
-        
-        try:
-          print(f"DEBUG: Scraping lead {organic_count + 1}/{max_results}: {card_name}")
-          await page.goto(card_href, wait_until="domcontentloaded", timeout=60000)
-          
-          # Wait 2.5 seconds to ensure dynamic side panel elements and URL coordinates have fully loaded
-          await page.wait_for_timeout(2500)
-          
-          details = await extract_current_details(page, card_href, target_name=card_name)
-          if details:
-            lead_name = details.get("name", "")
-            if "sponsored" in lead_name.lower() or lead_name.startswith("Sponsored"):
-              continue
-            results.append({
-              "company_name": details["name"],
-              "address": details["address"],
-              "phone": details["phone"],
-              "website": details["website"],
-              "location_lat": details["latitude"],
-              "location_lng": details["longitude"],
-              "facebook_url": details["socials"]["facebook"],
-              "instagram_url": details["socials"]["instagram"],
-              "linkedin_url": details["socials"]["linkedin"],
-              "category": details["category"],
-              "rating": details["rating"],
-              "reviews_count": details["reviews_count"],
-              "source": "google_maps",
-              "search_query": query,
-              "location": location,
-              "opening_hours": details["opening_hours"],
-            })
-            organic_count += 1
-        except Exception as e:
-          logger.error("Error extracting business %s: %s", card_name, e)
-          continue
+        async with semaphore:
+          try:
+            print(f"DEBUG: Scraping lead {idx + 1}/{min(len(targets), max_results)}: {card_name}")
+            tab = await context.new_page()
+            try:
+              await tab.goto(card_href, wait_until="domcontentloaded", timeout=45000)
+              # Wait for the place detail panel H1 to appear (up to 8 seconds)
+              try:
+                await tab.wait_for_selector("div[role='main'] h1", timeout=8000)
+              except Exception:
+                # H1 didn't appear — try waiting a bit more for full JS render
+                await tab.wait_for_timeout(2000)
+              details = await extract_current_details(tab, card_href, target_name=card_name)
+              if details:
+                # Accept the lead even if name fell back to target_name, as long as href is a Maps place URL
+                lead_name = details.get("name", "")
+                if "sponsored" in lead_name.lower():
+                  return
+                async with results_lock:
+                  if organic_count < max_results:
+                    results.append({
+                      "company_name": details["name"],
+                      "address": details["address"],
+                      "phone": details["phone"],
+                      "website": details["website"],
+                      "location_lat": details["latitude"],
+                      "location_lng": details["longitude"],
+                      "facebook_url": details["socials"]["facebook"],
+                      "instagram_url": details["socials"]["instagram"],
+                      "linkedin_url": details["socials"]["linkedin"],
+                      "category": details["category"],
+                      "rating": details["rating"],
+                      "reviews_count": details["reviews_count"],
+                      "source": "google_maps",
+                      "search_query": query,
+                      "location": location,
+                      "opening_hours": details["opening_hours"],
+                    })
+                    organic_count += 1
+                    print(f"DEBUG: Saved lead {organic_count}/{max_results}: {details['name']}")
+                    # Fire a live Redis progress event so the UI counter updates in real-time
+                    if job_id:
+                      try:
+                        from app.services.job_progress import update_job
+                        await update_job(
+                          job_id,
+                          "running",
+                          data={
+                            "step": "scouting",
+                            "progress_pct": min(20, int(organic_count / max_results * 20)),
+                            "saved_count": organic_count,
+                            "total": max_results,
+                          },
+                          event=f"Found ✓ {details['name']}",
+                        )
+                      except Exception as _ev_err:
+                        logger.debug("Progress event error: %s", _ev_err)
+            finally:
+              await tab.close()
+          except Exception as e:
+            logger.error("Error extracting business %s: %s", card_name, e)
+
+      capped_targets = targets[:max_results + 10]  # extra buffer for filtering
+      await _asyncio.gather(*[scrape_one(i, t) for i, t in enumerate(capped_targets)])
 
     except Exception as e:
       logger.error("Google Maps scrape failed: %s", e)

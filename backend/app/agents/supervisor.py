@@ -457,10 +457,14 @@ async def run_scout_discovery(
 ) -> None:
   """Run scout agent and persist discovered leads to database."""
   total_target = target_criteria.get("max_results", 50)
+  limit_warning = target_criteria.get("limit_warning")
+  job_data = {"step": "starting", "progress_pct": 0, "total": total_target, "saved_count": 0}
+  if limit_warning:
+    job_data["limit_warning"] = limit_warning
   await _update_job_status(
     job_id,
     "running",
-    {"step": "starting", "progress_pct": 0, "total": total_target, "saved_count": 0},
+    job_data,
     event="Starting Scout agent...",
     event_sw="Inaanza kutafuta wateja...",
   )
@@ -570,6 +574,10 @@ async def run_scout_discovery(
             except Exception as e:
               logger.error("Enrich failed for %s: %s", lead_id, e)
 
+    warning_msg = None
+    if len(discovered) > 0 and len(saved_ids) == 0:
+      warning_msg = "Leads were found but could not be saved (duplicate or plan limit reached)."
+
     await _update_job_status(
       job_id,
       "completed",
@@ -579,6 +587,7 @@ async def run_scout_discovery(
         "lead_ids": saved_ids,
         "progress_pct": 100,
         "search_metadata": search_metadata,
+        "warning": warning_msg,
       },
       event=f"Done! {len(saved_ids)} leads saved to your pipeline.",
       event_sw=f"Imekamilika! Wateja {len(saved_ids)} wamehifadhiwa.",
