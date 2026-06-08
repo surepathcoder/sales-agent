@@ -39,11 +39,11 @@ export default function LeadDetailPage() {
   };
 
   return (
-    <div>
-      <div className="flex items-start justify-between">
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{lead.company_name}</h1>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             <span className="rounded-full bg-kijani-100 px-3 py-1 text-xs font-medium capitalize">
               {lead.status.replace('_', ' ')}
             </span>
@@ -53,6 +53,7 @@ export default function LeadDetailPage() {
         </div>
         <Button
           variant="outline"
+          className="w-full sm:w-auto"
           onClick={() =>
             api.post(
               '/api/v1/agents/trigger/outreach',
@@ -65,13 +66,15 @@ export default function LeadDetailPage() {
         </Button>
       </div>
 
-      <div className="mt-6 flex gap-2 border-b">
+      <div className="flex gap-2 border-b overflow-x-auto pb-px whitespace-nowrap scrollbar-none">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium ${
-              tab === t ? 'border-b-2 border-kijani-600 text-kijani-700' : 'text-muted-foreground'
+            className={`px-4 py-2 text-sm font-medium flex-shrink-0 transition-colors ${
+              tab === t
+                ? 'border-b-2 border-kijani-600 text-kijani-700'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             {t}

@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_tenant_id, get_db
-from app.models.enums import PaymentMethod
+from app.api.deps import get_current_tenant_id, get_db, require_roles
+from app.models.enums import PaymentMethod, UserRole
 from app.services.billing_service import BillingService
 
 router = APIRouter()
@@ -30,7 +30,11 @@ class TransactionResponse(BaseModel):
         from_attributes = True
 
 
-@router.post("/top-up", response_model=TransactionResponse)
+@router.post(
+    "/top-up",
+    response_model=TransactionResponse,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER))],
+)
 async def top_up(
     data: TopUpRequest,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -65,7 +69,11 @@ async def payment_webhook(
     return {"status": txn.status.value, "reference": txn.payment_reference}
 
 
-@router.get("/transactions", response_model=list[TransactionResponse])
+@router.get(
+    "/transactions",
+    response_model=list[TransactionResponse],
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER))],
+)
 async def list_transactions(
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
     db: AsyncSession = Depends(get_db),

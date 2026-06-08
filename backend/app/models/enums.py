@@ -56,9 +56,9 @@ class TenantStatus(str, enum.Enum):
 
 class UserRole(str, enum.Enum):
     SUPER_ADMIN = "super_admin"
-    ADMIN = "admin"
-    SALES_MANAGER = "sales_manager"
-    SALES_REP = "sales_rep"
+    OWNER = "owner"
+    MANAGER = "manager"
+    AGENT = "agent"
     VIEWER = "viewer"
 
 
@@ -254,8 +254,11 @@ class TransactionStatus(str, enum.Enum):
 class AgentType(str, enum.Enum):
     SCOUT = "scout"
     RESEARCHER = "researcher"
+    ENRICHMENT = "enrichment"
     OUTREACH = "outreach"
+    QUALIFICATION = "qualification"
     CLOSER = "closer"
+    MANAGER = "manager"
 
 
 class MemoryType(str, enum.Enum):

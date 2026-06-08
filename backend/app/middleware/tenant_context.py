@@ -32,6 +32,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         request.state.tenant_id = None
         request.state.user_id = None
         request.state.user_role = None
+        request.state.plan_type = "free"
 
         path = request.url.path
         is_public = any(path.startswith(p) for p in PUBLIC_PATHS)
@@ -51,6 +52,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                 request.state.user_id = payload.get("sub")
                 request.state.tenant_id = payload.get("tenant_id") or request.state.tenant_id
                 request.state.user_role = payload.get("role")
+                request.state.plan_type = payload.get("plan_type") or "free"
             except JWTError:
                 if not is_public:
                     pass  # Let route dependencies raise 401

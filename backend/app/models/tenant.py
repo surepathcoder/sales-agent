@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.campaign import Campaign
     from app.models.lead import Lead
     from app.models.user import User
+    from app.models.abuse_report import AbuseReport
 
 
 class Tenant(Base, TimestampMixin):
@@ -50,4 +51,7 @@ class Tenant(Base, TimestampMixin):
     )
     billing_transactions: Mapped[list["BillingTransaction"]] = relationship(
         "BillingTransaction", back_populates="tenant", cascade="all, delete-orphan"
+    )
+    abuse_reports: Mapped[list["AbuseReport"]] = relationship(
+        "AbuseReport", back_populates="tenant", cascade="all, delete-orphan"
     )

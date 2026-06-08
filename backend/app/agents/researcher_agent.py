@@ -53,6 +53,18 @@ async def researcher_node(state: AgentState) -> dict[str, Any]:
     scoring = {"score": 50, "priority": "warm", "reasoning": "offline default"}
   enriched["ai_score"] = scoring
 
+  try:
+    research_report = await groq.research_lead(enriched, tenant_id=tenant_id)
+  except Exception as e:
+    logger.warning("Researcher research_lead failed: %s", e)
+    research_report = {
+      "summary": "No summary available.",
+      "pain_points": [],
+      "sales_angle": [],
+      "best_contact_method": "whatsapp"
+    }
+  enriched["research_report"] = research_report
+
   risk_factors: list[str] = []
   if not enriched.get("phone") and not enriched.get("contacts"):
     risk_factors.append("No contact phone found")

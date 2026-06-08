@@ -1,7 +1,11 @@
 """
 Agent Supervisor — LangGraph orchestrator.
 
-Pipeline: scout → researcher → outreach → closer → END
+Full Multi-Agent Pipeline:
+  Manager(pre) → Scout → Researcher → Enrichment → Outreach → Qualification → Closer → Manager(post) → END
+
+Each node is a standalone async function operating on shared AgentState.
+The Manager wraps the pipeline with pre-checks and post-analysis.
 Supports human-in-the-loop gates and per-tenant cost tracking.
 """
 
@@ -14,8 +18,15 @@ from typing import Any, Literal
 from langgraph.graph import END, StateGraph
 
 from app.agents.closer_agent import closer_node
+from app.agents.enrichment_agent import enrichment_node
+from app.agents.manager_agent import (
+    manager_error_handler,
+    manager_post_pipeline,
+    manager_pre_pipeline,
+)
 from app.agents.memory import AgentMemoryStore
 from app.agents.outreach_agent import outreach_node
+from app.agents.qualification_agent import qualification_node
 from app.agents.researcher_agent import researcher_node
 from app.agents.scout_agent import scout_node
 from app.agents.state import AgentState
@@ -32,37 +43,121 @@ from app.services.lead_service import LeadService
 logger = logging.getLogger(__name__)
 
 
+# ── Routing functions ─────────────────────────────────────────────────
+
 def _route_after_scout(state: AgentState) -> Literal["researcher", "end"]:
-  if state.get("discovered_leads"):
-    return "researcher"
-  return "end"
+    """After Scout: proceed to Researcher if leads discovered, else end."""
+    if state.get("discovered_leads"):
+        return "researcher"
+    return "end"
 
 
-def _route_pipeline(state: AgentState) -> Literal["outreach", "closer", "end"]:
-  mode = state.get("target_criteria", {}).get("pipeline_mode", "discovery")
-  if mode == "outreach":
-    return "outreach"
-  if mode == "close":
-    return "closer"
-  return "end"
+def _route_after_qualification(
+    state: AgentState,
+) -> Literal["closer", "manager_post"]:
+    """After Qualification: advance to Closer if qualified, else skip to Manager(post)."""
+    if state.get("should_advance", False):
+        return "closer"
+    return "manager_post"
 
+
+def _route_pipeline_mode(
+    state: AgentState,
+) -> Literal["outreach", "closer", "manager_post"]:
+    """After Enrichment: route based on pipeline_mode.
+
+    - 'discovery' → finish (manager_post)
+    - 'outreach' → outreach
+    - 'close' → closer (skip outreach + qualification)
+    """
+    mode = state.get("target_criteria", {}).get("pipeline_mode", "discovery")
+    if mode == "outreach":
+        return "outreach"
+    if mode == "close":
+        return "closer"
+    return "manager_post"
+
+
+def _route_manager_pre(state: AgentState) -> Literal["scout", "end"]:
+    """After Manager pre-check: proceed if healthy, abort if critical errors."""
+    status = state.get("pipeline_status", "healthy")
+    if status == "failed":
+        return "end"
+    return "scout"
+
+
+# ── Graph builder ─────────────────────────────────────────────────────
 
 def build_agent_graph() -> StateGraph:
-  """Build the LangGraph StateGraph with conditional routing."""
-  graph = StateGraph(AgentState)
+    """Build the full LangGraph StateGraph with 7 agents.
 
-  graph.add_node("scout", scout_node)
-  graph.add_node("researcher", researcher_node)
-  graph.add_node("outreach", outreach_node)
-  graph.add_node("closer", closer_node)
+    Pipeline:
+      manager_pre → scout → researcher → enrichment
+        → [outreach → qualification → closer (conditional)] → manager_post → END
 
-  graph.set_entry_point("scout")
-  graph.add_conditional_edges("scout", _route_after_scout, {"researcher": "researcher", "end": END})
-  graph.add_edge("researcher", "outreach")
-  graph.add_conditional_edges("outreach", _route_pipeline, {"outreach": END, "closer": "closer", "end": END})
-  graph.add_edge("closer", END)
+    Routing:
+      - After scout: stop if no leads found
+      - After enrichment: route by pipeline_mode
+      - After qualification: advance to closer only if qualified
+      - Manager wraps with pre/post monitoring
+    """
+    graph = StateGraph(AgentState)
 
-  return graph.compile()
+    # Register all 7 agent nodes
+    graph.add_node("manager_pre", manager_pre_pipeline)
+    graph.add_node("scout", scout_node)
+    graph.add_node("researcher", researcher_node)
+    graph.add_node("enrichment", enrichment_node)
+    graph.add_node("outreach", outreach_node)
+    graph.add_node("qualification", qualification_node)
+    graph.add_node("closer", closer_node)
+    graph.add_node("manager_post", manager_post_pipeline)
+
+    # Entry: Manager pre-check
+    graph.set_entry_point("manager_pre")
+
+    # Manager pre → Scout (or abort)
+    graph.add_conditional_edges(
+        "manager_pre",
+        _route_manager_pre,
+        {"scout": "scout", "end": END},
+    )
+
+    # Scout → Researcher (if leads) or END
+    graph.add_conditional_edges(
+        "scout",
+        _route_after_scout,
+        {"researcher": "researcher", "end": END},
+    )
+
+    # Researcher → Enrichment (always)
+    graph.add_edge("researcher", "enrichment")
+
+    # Enrichment → Outreach / Closer / Manager(post) based on pipeline_mode
+    graph.add_conditional_edges(
+        "enrichment",
+        _route_pipeline_mode,
+        {"outreach": "outreach", "closer": "closer", "manager_post": "manager_post"},
+    )
+
+    # Outreach → Qualification (always)
+    graph.add_edge("outreach", "qualification")
+
+    # Qualification → Closer (if qualified) or Manager(post) (nurture/disqualify)
+    graph.add_conditional_edges(
+        "qualification",
+        _route_after_qualification,
+        {"closer": "closer", "manager_post": "manager_post"},
+    )
+
+    # Closer → Manager post (always)
+    graph.add_edge("closer", "manager_post")
+
+    # Manager post → END
+    graph.add_edge("manager_post", END)
+
+    return graph.compile()
+
 
 
 async def _update_job_status(
@@ -127,6 +222,7 @@ async def _enrich_lead(
     "research": enriched,
     "risk_factors": result.get("risk_factors", []),
     "ai_score": enriched.get("ai_score"),
+    "research_report": enriched.get("research_report"),
   }
   lead.status = LeadStatus.RESEARCHING
 
@@ -170,6 +266,61 @@ async def _enrich_lead(
             is_decision_maker=False,
           )
         )
+
+  # ── Enrichment Agent — classify contacts and discover more data ──
+  try:
+    enrich_state: AgentState = {
+      **state,
+      "enriched_lead": enriched,
+    }
+    enrich_result = await enrichment_node(enrich_state)
+    enrichment_data = enrich_result.get("enrichment_data", {})
+    lead.ai_insights = {
+      **lead.ai_insights,
+      "enrichment": enrichment_data,
+      "enrichment_confidence": enrich_result.get("enrichment_confidence", 0),
+    }
+
+    # Persist decision-makers discovered by enrichment
+    for dm in enrichment_data.get("decision_makers", []):
+      dm_email = dm.get("email", "")
+      dm_phone = dm.get("phone", "")
+      existing_emails = [c.email for c in lead.contacts if c.email]
+      existing_phones = [c.whatsapp_number for c in lead.contacts if c.whatsapp_number]
+      if dm_email and dm_email not in existing_emails:
+        from app.schemas.contact import LeadContactCreate
+        from app.models.enums import ContactType
+        role_map = {
+          "owner": ContactType.OWNER,
+          "director": ContactType.DIRECTOR,
+          "manager": ContactType.MANAGER,
+          "procurement": ContactType.PROCUREMENT,
+          "finance": ContactType.FINANCE,
+          "operations": ContactType.OPERATIONS,
+        }
+        await lead_svc.add_contact(
+          lead.id,
+          LeadContactCreate(
+            first_name=dm.get("name", "Decision Maker"),
+            last_name="",
+            email=dm_email,
+            phone=dm_phone or None,
+            whatsapp_number=dm_phone or None,
+            contact_type=role_map.get(dm.get("role", ""), ContactType.PROCUREMENT),
+            is_decision_maker=True,
+          )
+        )
+
+    memory_store_e = AgentMemoryStore(db, tenant_id)
+    await memory_store_e.store(
+      AgentType.ENRICHMENT,
+      f"Enrichment for {lead.company_name}: {enrichment_data.get('contacts_count', 0)} contacts",
+      MemoryType.INSIGHT,
+      lead_id=lead.id,
+      confidence=enrich_result.get("enrichment_confidence", 0.5),
+    )
+  except Exception as e:
+    logger.error("Enrichment agent failed for %s: %s", lead.company_name, e)
 
   memory_store = AgentMemoryStore(db, tenant_id)
   await memory_store.store(
@@ -465,6 +616,7 @@ async def run_outreach_for_lead(
     "lead": {
       "lead_id": str(lead.id),
       "company_name": lead.company_name,
+      "ai_insights": lead.ai_insights,
       "contacts": [
         {"first_name": c.first_name, "whatsapp_number": c.whatsapp_number, "email": c.email}
         for c in lead.contacts
@@ -479,13 +631,24 @@ async def run_outreach_for_lead(
   message = result.get("sent_message", "")
   pending = human_approval_required
 
+  from app.models.enums import InteractionChannel
+  channel_str = (step_config or {}).get("channel", "whatsapp")
+  if channel_str == "voice_note":
+    db_channel = InteractionChannel.WHATSAPP
+  else:
+    try:
+      db_channel = InteractionChannel(channel_str)
+    except ValueError:
+      db_channel = InteractionChannel.WHATSAPP
+
   interaction = await interaction_svc.create_outreach_interaction(
     lead_id=lead.id,
     contact_id=contact.id,
     content=message,
     campaign_id=campaign_id,
     pending_approval=pending,
-    metadata={"engagement_prediction": result.get("engagement_prediction")},
+    channel=db_channel,
+    metadata={"engagement_prediction": result.get("engagement_prediction"), **result.get("extra_metadata", {})},
   )
 
   if not pending:
@@ -541,8 +704,11 @@ async def trigger_agent_manual(
       nodes = {
         "scout": scout_node,
         "researcher": researcher_node,
+        "enrichment": enrichment_node,
         "outreach": outreach_node,
+        "qualification": qualification_node,
         "closer": closer_node,
+        "manager": manager_post_pipeline,
       }
       node_fn = nodes.get(agent_type.value)
       if not node_fn:
@@ -565,6 +731,7 @@ async def trigger_agent_manual(
             "lead_id": str(lead.id),
             "company_name": lead.company_name,
             "status": lead.status.value,
+            "ai_insights": lead.ai_insights,
             "contacts": [
               {"first_name": c.first_name, "whatsapp_number": c.whatsapp_number, "email": c.email}
               for c in lead.contacts

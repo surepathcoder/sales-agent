@@ -35,6 +35,7 @@ class AuthService:
         user_id: uuid.UUID,
         tenant_id: uuid.UUID,
         role: str,
+        plan_type: str,
         expires_delta: timedelta,
         token_type: str = "access",
     ) -> str:
@@ -43,16 +44,18 @@ class AuthService:
             "sub": str(user_id),
             "tenant_id": str(tenant_id),
             "role": role,
+            "plan_type": plan_type,
             "type": token_type,
             "exp": expire,
         }
         return jwt.encode(payload, self.settings.secret_key, algorithm=self.settings.algorithm)
 
-    def create_tokens(self, user: User) -> tuple[str, str]:
+    def create_tokens(self, user: User, plan_type: str = "free") -> tuple[str, str]:
         access = self.create_token(
             user.id,
             user.tenant_id,
             user.role.value,
+            plan_type,
             timedelta(minutes=self.settings.access_token_expire_minutes),
             "access",
         )
@@ -60,6 +63,7 @@ class AuthService:
             user.id,
             user.tenant_id,
             user.role.value,
+            plan_type,
             timedelta(minutes=self.settings.refresh_token_expire_minutes),
             "refresh",
         )
@@ -97,7 +101,7 @@ class AuthService:
             email=data.email.lower(),
             phone=phone,
             password_hash=self.hash_password(data.password),
-            role=UserRole.SUPER_ADMIN,
+            role=UserRole.OWNER,
         )
         self.db.add(user)
         await self.db.flush()

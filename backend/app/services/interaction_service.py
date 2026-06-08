@@ -102,7 +102,7 @@ class InteractionService:
             contact_id=contact_id,
             channel=InteractionChannel.WHATSAPP,
             direction=InteractionDirection.INBOUND,
-            initiated_by=InteractionInitiator.HUMAN_CONTACT,
+            initiated_by=InteractionInitiator.LEAD,
             content=content,
             ai_generated=False,
             extra_metadata=metadata or {},

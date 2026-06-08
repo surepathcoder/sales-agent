@@ -58,7 +58,7 @@ export default function BillingPage() {
       )}
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {(Object.keys(PLAN_FEATURES) as PlanType[]).map((plan) => (
+        {(Object.keys(PLAN_FEATURES) as Array<keyof typeof PLAN_FEATURES>).map((plan) => (
           <Card key={plan} className={tenant?.plan_type === plan ? 'border-kijani-600' : ''}>
             <CardHeader>
               <CardTitle className="capitalize text-lg">{plan}</CardTitle>

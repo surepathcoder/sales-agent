@@ -57,7 +57,7 @@ export default function RegisterPage() {
           <Input placeholder="Industry" value={form.industry_vertical} onChange={(e) => setForm({ ...form, industry_vertical: e.target.value })} />
 
           <div className="grid grid-cols-2 gap-2">
-            {(Object.keys(PLAN_FEATURES) as PlanType[]).map((plan) => (
+            {(Object.keys(PLAN_FEATURES) as Array<keyof typeof PLAN_FEATURES>).map((plan) => (
               <button
                 key={plan}
                 type="button"

@@ -1,0 +1,18 @@
+{
+  "name": "Kijani AI — Agentic Sales",
+  "short_name": "Kijani AI",
+  "description": "AI-powered B2B sales platform for Tanzania with WhatsApp-first outreach",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#15803d",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

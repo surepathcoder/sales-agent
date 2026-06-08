@@ -5,7 +5,8 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_tenant_id, get_current_user_id, get_db
+from app.api.deps import get_current_tenant_id, get_current_user_id, get_db, require_roles
+from app.models.enums import UserRole
 from app.schemas.campaign import CampaignAnalytics, CampaignCreate, CampaignResponse
 from app.services.campaign_service import CampaignService
 
@@ -22,7 +23,12 @@ async def list_campaigns(
     return [CampaignResponse.model_validate(c) for c in campaigns]
 
 
-@router.post("", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CampaignResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER))],
+)
 async def create_campaign(
     data: CampaignCreate,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -37,7 +43,11 @@ async def create_campaign(
     return CampaignResponse.model_validate(campaign)
 
 
-@router.post("/{campaign_id}/start", response_model=CampaignResponse)
+@router.post(
+    "/{campaign_id}/start",
+    response_model=CampaignResponse,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER))],
+)
 async def start_campaign(
     campaign_id: uuid.UUID,
     background_tasks: BackgroundTasks,

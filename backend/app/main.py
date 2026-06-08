@@ -66,6 +66,9 @@ def create_app() -> FastAPI:
     openapi_url="/openapi.json" if settings.is_development else None,
   )
 
+  app.add_middleware(RateLimitHTTPMiddleware)
+  app.add_middleware(RequestLoggingMiddleware)
+  app.add_middleware(TenantContextMiddleware)
   app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.app_frontend_url, "http://localhost:3000"],
@@ -73,9 +76,6 @@ def create_app() -> FastAPI:
     allow_methods=["*"],
     allow_headers=["*"],
   )
-  app.add_middleware(RateLimitHTTPMiddleware)
-  app.add_middleware(RequestLoggingMiddleware)
-  app.add_middleware(TenantContextMiddleware)
 
   app.include_router(api_router)
 

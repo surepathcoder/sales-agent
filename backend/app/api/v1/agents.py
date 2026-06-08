@@ -8,9 +8,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_tenant_id, get_db
+from app.api.deps import get_current_tenant_id, get_db, require_roles
 from app.models.agent_memory import AgentMemory
-from app.models.enums import AgentType
+from app.models.enums import AgentType, UserRole
 
 router = APIRouter()
 
@@ -58,7 +58,10 @@ async def get_agent_job_status(job_id: str) -> dict:
     return {"job_id": job_id, "status": "unknown", "events": []}
 
 
-@router.post("/trigger/{agent_type}")
+@router.post(
+    "/trigger/{agent_type}",
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AGENT))],
+)
 async def trigger_agent(
     agent_type: AgentType,
     data: AgentTriggerRequest,

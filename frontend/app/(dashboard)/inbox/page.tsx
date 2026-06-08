@@ -47,7 +47,7 @@ export default function InboxPage() {
         <div className="mt-6 space-y-3">
           {items.map((item) => (
             <Card key={item.id}>
-              <CardContent className="flex items-start justify-between gap-4 pt-4">
+              <CardContent className="flex flex-col sm:flex-row items-stretch sm:items-start justify-between gap-4 pt-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                     <span className="capitalize">{item.direction}</span>
@@ -61,14 +61,16 @@ export default function InboxPage() {
                   </div>
                   <p className="mt-2 whitespace-pre-wrap text-sm">{item.content}</p>
                 </div>
-                {item.human_approved === null && item.ai_generated && item.direction === 'outbound' && (
-                  <Button size="sm" onClick={() => approve.mutate(item.id)} disabled={approve.isPending}>
-                    Approve & Send
-                  </Button>
-                )}
-                {item.human_approved && (
-                  <span className="text-xs text-green-700">Sent ✓</span>
-                )}
+                <div className="flex-shrink-0 self-end sm:self-auto">
+                  {item.human_approved === null && item.ai_generated && item.direction === 'outbound' && (
+                    <Button size="sm" className="w-full sm:w-auto" onClick={() => approve.mutate(item.id)} disabled={approve.isPending}>
+                      Approve & Send
+                    </Button>
+                  )}
+                  {item.human_approved && (
+                    <span className="text-xs text-green-700 font-medium block text-right">Sent ✓</span>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}

@@ -35,7 +35,7 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
         pg_enum(UserRole, "user_role"),
-        default=UserRole.SALES_REP,
+        default=UserRole.AGENT,
         nullable=False,
     )
     nida_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

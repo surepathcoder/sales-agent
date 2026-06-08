@@ -13,6 +13,7 @@ from app.models.lead import Lead
 from app.models.lead_contact import LeadContact
 from app.models.tenant import Tenant
 from app.models.user import User
+from app.models.abuse_report import AbuseReport
 
 __all__ = [
     "Tenant",
@@ -24,4 +25,5 @@ __all__ = [
     "Deal",
     "BillingTransaction",
     "AgentMemory",
+    "AbuseReport",
 ]

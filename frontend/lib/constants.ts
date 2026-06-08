@@ -13,10 +13,9 @@ export const LEAD_STATUSES = [
 ] as const;
 
 export const PLAN_FEATURES = {
-  free: { leads: 50, campaigns: 2, price: 0 },
-  starter: { leads: 500, campaigns: 10, price: 150000 },
-  growth: { leads: 5000, campaigns: 50, price: 500000 },
-  enterprise: { leads: 100000, campaigns: 1000, price: 0 },
+  free: { leads: 20, campaigns: 1, price: 0 },
+  growth: { leads: 200, campaigns: 5, price: 75000 },
+  enterprise: { leads: 1000, campaigns: 9999, price: 200000 },
 };
 
 export const SCRAPE_SOURCES = [

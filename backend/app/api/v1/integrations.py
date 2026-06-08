@@ -5,7 +5,8 @@ import uuid
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.api.deps import get_current_tenant_id
+from app.api.deps import get_current_tenant_id, require_roles
+from app.models.enums import UserRole
 from app.integrations.whatsapp_web import WhatsAppWebClient
 
 router = APIRouter()
@@ -29,7 +30,11 @@ async def whatsapp_status(
     )
 
 
-@router.get("/whatsapp/qr", response_model=WhatsAppStatusResponse)
+@router.get(
+    "/whatsapp/qr",
+    response_model=WhatsAppStatusResponse,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER))],
+)
 async def whatsapp_qr(
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
 ) -> WhatsAppStatusResponse:

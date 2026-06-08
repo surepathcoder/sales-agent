@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { Topbar } from '@/components/dashboard/topbar';
@@ -13,6 +13,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const token = useAuthStore((s) => s.accessToken);
   const { data: usage } = useUsage();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!token) router.replace('/login');
@@ -29,15 +30,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [usage, pathname, router, token]);
 
+  // Close sidebar drawer automatically on navigation changes
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [pathname]);
+
   if (!token) return null;
 
   return (
-    <div className="flex h-screen">
-      <Sidebar />
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar />
+        <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
         <PlanBanner />
-        <main className="flex-1 overflow-auto bg-muted/30 p-6">{children}</main>
+        <main className="flex-1 overflow-auto bg-muted/30 p-4 md:p-6">{children}</main>
       </div>
     </div>
   );

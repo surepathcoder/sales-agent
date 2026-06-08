@@ -8,8 +8,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, U
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_tenant_id, get_current_user_id, get_db
-from app.models.enums import LeadStatus
+from app.api.deps import get_current_tenant_id, get_current_user_id, get_db, require_roles
+from app.models.enums import UserRole, LeadStatus
 from app.schemas.common import JobResponse, PaginatedResponse
 from app.schemas.contact import LeadContactCreate, LeadContactResponse
 from app.schemas.lead import (
@@ -40,7 +40,12 @@ async def _run_scout_job(
     )
 
 
-@router.post("/discover", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/discover",
+    response_model=JobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AGENT))],
+)
 async def discover_leads(
     data: DiscoverLeadsRequest,
     background_tasks: BackgroundTasks,
@@ -107,7 +112,12 @@ async def get_lead(
     return resp
 
 
-@router.post("", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=LeadResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AGENT))],
+)
 async def create_lead(
     data: LeadCreate,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -123,7 +133,11 @@ async def create_lead(
     return resp
 
 
-@router.patch("/{lead_id}", response_model=LeadResponse)
+@router.patch(
+    "/{lead_id}",
+    response_model=LeadResponse,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AGENT))],
+)
 async def update_lead(
     lead_id: uuid.UUID,
     data: LeadUpdate,
@@ -156,6 +170,7 @@ async def list_lead_contacts(
     "/{lead_id}/contacts",
     response_model=LeadContactResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AGENT))],
 )
 async def add_lead_contact(
     lead_id: uuid.UUID,
@@ -176,7 +191,11 @@ class ImportResult(BaseModel):
     errors: list[str]
 
 
-@router.post("/import", response_model=ImportResult)
+@router.post(
+    "/import",
+    response_model=ImportResult,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AGENT))],
+)
 async def import_leads_csv(
     file: UploadFile,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),

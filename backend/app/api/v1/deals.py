@@ -5,7 +5,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_tenant_id, get_current_user_id, get_db
+from app.api.deps import get_current_tenant_id, get_current_user_id, get_db, require_roles
+from app.models.enums import UserRole
 from app.schemas.deal import DealCreate, DealResponse, DealUpdate
 from app.services.deal_service import DealService
 
@@ -21,7 +22,12 @@ async def list_deals(
     return [DealResponse.model_validate(d) for d in await svc.list_deals()]
 
 
-@router.post("", response_model=DealResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=DealResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AGENT))],
+)
 async def create_deal(
     data: DealCreate,
     tenant_id: uuid.UUID = Depends(get_current_tenant_id),
@@ -46,7 +52,11 @@ async def get_deal(
     return DealResponse.model_validate(deal)
 
 
-@router.patch("/{deal_id}", response_model=DealResponse)
+@router.patch(
+    "/{deal_id}",
+    response_model=DealResponse,
+    dependencies=[Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.MANAGER, UserRole.AGENT))],
+)
 async def update_deal(
     deal_id: uuid.UUID,
     data: DealUpdate,

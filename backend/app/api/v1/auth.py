@@ -35,7 +35,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
     except Exception as e:
         raise HTTPException(status_code=400, detail={"en": str(e)}) from e
 
-    access, refresh = auth_svc.create_tokens(user)
+    access, refresh = auth_svc.create_tokens(user, tenant.plan_type.value)
     return AuthResponse(
         access_token=access,
         refresh_token=refresh,
@@ -57,7 +57,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)) -> AuthR
     if not pair:
         raise HTTPException(status_code=404)
     user, tenant = pair
-    access, refresh = auth_svc.create_tokens(user)
+    access, refresh = auth_svc.create_tokens(user, tenant.plan_type.value)
     return AuthResponse(
         access_token=access,
         refresh_token=refresh,
@@ -77,8 +77,8 @@ async def refresh_token(data: RefreshRequest, db: AsyncSession = Depends(get_db)
     pair = await auth_svc.get_user_with_tenant(user_id)
     if not pair:
         raise HTTPException(status_code=404)
-    user, _ = pair
-    access, refresh = auth_svc.create_tokens(user)
+    user, tenant = pair
+    access, refresh = auth_svc.create_tokens(user, tenant.plan_type.value)
     return TokenResponse(access_token=access, refresh_token=refresh)
 
 
